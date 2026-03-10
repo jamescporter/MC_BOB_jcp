@@ -9,6 +9,14 @@ const DURABILITY_DAMAGE_PROPERTY = "better_on_bedrock:durability_damage";
 const PICKUP_COOLDOWN_TICKS = 20;
 const KNOWN_TRIDENT_PROJECTILE_IDS = new Set(CustomTridents.map((trident) => trident.projectile?.entityID).filter((entityID) => entityID));
 
+const parseProjectileItemData = (projectileEntity) => {
+    const itemProperty = projectileEntity.getDynamicProperty("item");
+    if (!itemProperty)
+        return;
+
+    return JSON.parse(itemProperty);
+};
+
 world.afterEvents.itemReleaseUse.subscribe((data) => {
     const { source, useDuration } = data;
     if (!data.itemStack)
@@ -94,11 +102,10 @@ world.afterEvents.projectileHitBlock.subscribe((data) => {
         if (!projectile || !projectile.isValid())
             return;
 
-        let itemData = projectile.getDynamicProperty("item");
+        const itemData = parseProjectileItemData(projectile);
         if (!itemData)
             return;
 
-        itemData = JSON.parse(itemData);
         if (!itemData.enchantments)
             return;
 
@@ -114,11 +121,9 @@ world.afterEvents.projectileHitEntity.subscribe((data) => {
     if (!projectile || !projectile.isValid())
         return;
 
-    const itemProperty = projectile.getDynamicProperty("item");
-    if (!itemProperty)
+    const itemData = parseProjectileItemData(projectile);
+    if (!itemData)
         return;
-
-    const itemData = JSON.parse(itemProperty);
 
     const entity = data.getEntityHit()?.entity;
     const entityLoc = entity?.location;
@@ -216,24 +221,37 @@ system.runInterval(() => {
             const tridents = player.dimension.getEntities({ location: { x: x, y: y + 1, z: z }, maxDistance: 2, tags: [CUSTOM_TRIDENT_ENTITY_TAG] });
 
             const container = inv.container;
-            for (let i = 0; i < tridents.length; i++) {
-                if (!tridents[i] || !tridents[i].isValid())
+            const knownProjectileIds = KNOWN_TRIDENT_PROJECTILE_IDS;
+            const currentTick = system.currentTick;
+            const getOwnerCached = (() => {
+                const ownerCache = new Map();
+                return (ownerID) => {
+                    if (ownerCache.has(ownerID))
+                        return ownerCache.get(ownerID);
+
+                    const owner = TridentManager.getOwner(ownerID) ?? null;
+                    ownerCache.set(ownerID, owner);
+                    return owner;
+                };
+            })();
+            for (let j = 0; j < tridents.length; j++) {
+                const tridentEntity = tridents[j];
+                if (!tridentEntity || !tridentEntity.isValid())
                     continue;
 
-                const tridentEntity = tridents[i];
-                if (!KNOWN_TRIDENT_PROJECTILE_IDS.has(tridentEntity.typeId))
+                if (!knownProjectileIds.has(tridentEntity.typeId))
                     continue;
 
                 if (container.emptySlotsCount <= 0)
                     continue;
 
                 const cooldownUntil = tridentEntity.getDynamicProperty(PICKUP_COOLDOWN_PROPERTY) ?? 0;
-                if (cooldownUntil > system.currentTick)
+                if (cooldownUntil > currentTick)
                     continue;
 
                 if (!TridentManager.canPickUp(tridentEntity))
                     {
-                        tridentEntity.setDynamicProperty(PICKUP_COOLDOWN_PROPERTY, system.currentTick + PICKUP_COOLDOWN_TICKS);
+                        tridentEntity.setDynamicProperty(PICKUP_COOLDOWN_PROPERTY, currentTick + PICKUP_COOLDOWN_TICKS);
                     continue;
                 }
 
@@ -241,14 +259,16 @@ system.runInterval(() => {
                 if (!ownerID)
                     continue;
 
-                if (ownerID != player.id)
+                if (ownerID != player.id) {
+                    const ownerEntity = getOwnerCached(ownerID);
+                    if (ownerEntity?.id != player.id)
+                        continue;
+                }
+
+                const itemData = parseProjectileItemData(tridentEntity);
+                if (!itemData)
                     continue;
 
-                const itemProperty = tridentEntity.getDynamicProperty("item");
-                if (!itemProperty)
-                    continue;
-
-                const itemData = JSON.parse(itemProperty);
                 itemData.durabilityDamage = tridentEntity.getDynamicProperty(DURABILITY_DAMAGE_PROPERTY) ?? itemData.durabilityDamage ?? 0;
 
                 const gameMode = player.getGameMode();
@@ -276,11 +296,9 @@ system.afterEvents.scriptEventReceive.subscribe((data) => {
         return;
 
     if (data.id == "better_on_bedrock:trident_return") {
-        let itemData = tridentEntity.getDynamicProperty("item");
+        const itemData = parseProjectileItemData(tridentEntity);
         if (!itemData)
             return;
-
-        itemData = JSON.parse(itemData);
 
         if (!itemData.enchantments)
             return;
