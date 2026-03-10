@@ -1,12 +1,16 @@
 import { world, system, EntityInventoryComponent, Dimension, ItemStack, ItemTypes, BlockPermutation, BlockInventoryComponent, MinecraftDimensionTypes, EquipmentSlot, EntityEquippableComponent } from "@minecraft/server";
 const PLAYER_OPERATION_COOLDOWN_TICKS = 10
 const SAVE_DEBOUNCE_TICKS = 4
+const PORTAL_NEARBY_CACHE_TICKS = 1
 let globalTick = 0
 
 const cachedPlayerState = new Map()
 const activeBackpackTicks = new Map()
 const pendingBackpackSaves = new Map()
 const lastPlayerOperationTick = new Map()
+const activeBackpackEntityIdsByPlayer = new Map()
+const backpackInventoryState = new Map()
+const portalNearbyCache = new Map()
 
 system.runInterval(() => {
     globalTick++
@@ -37,6 +41,14 @@ function portalNearby(player) {
 
 	return false;
 };
+
+function portalNearbyMemoized(player) {
+    const cached = portalNearbyCache.get(player.id)
+    if (cached && (globalTick - cached.tick) <= PORTAL_NEARBY_CACHE_TICKS) return cached.result
+    const result = portalNearby(player)
+    portalNearbyCache.set(player.id, { tick: globalTick, result })
+    return result
+}
 //function loads structure with backpack entity
 
 class structure_Manager {
@@ -150,6 +162,12 @@ function saveBackpack(entity) {
     entity.remove()
 }
 
+function closeBackpackEntityWithoutSave(entity) {
+    const playerId = entity.getDynamicProperty("playerID")
+    if (playerId != undefined) untrackActiveBackpackEntity(playerId, entity.id)
+    entity.remove()
+}
+
 function canRunPlayerOperation(playerId) {
     const lastTick = lastPlayerOperationTick.get(playerId)
     if (lastTick == undefined) return true
@@ -163,10 +181,21 @@ function markPlayerOperation(playerId) {
 function queueSaveBackpack(entity, playerId, immediate = false) {
     if (!entity?.isValid()) return
     const key = entity.id
-    if (pendingBackpackSaves.has(key)) return
+    const existing = pendingBackpackSaves.get(key)
+    if (existing != undefined) {
+        if (immediate && existing.dueTick > globalTick) {
+            system.clearRun(existing.runID)
+            pendingBackpackSaves.delete(key)
+        } else {
+            return
+        }
+    }
 
     const delay = immediate ? 0 : SAVE_DEBOUNCE_TICKS
+    const dueTick = globalTick + delay
     const runID = system.runTimeout(() => {
+        const pending = pendingBackpackSaves.get(key)
+        if (!pending || pending.runID != runID) return
         pendingBackpackSaves.delete(key)
         if (!entity.isValid()) return
 
@@ -174,16 +203,26 @@ function queueSaveBackpack(entity, playerId, immediate = false) {
         if (lastTick != undefined) {
             const ticksSinceLast = globalTick - lastTick
             if (ticksSinceLast < PLAYER_OPERATION_COOLDOWN_TICKS) {
-                queueSaveBackpack(entity, playerId, false)
+                queueSaveBackpack(entity, playerId, ticksSinceLast + SAVE_DEBOUNCE_TICKS >= PLAYER_OPERATION_COOLDOWN_TICKS)
                 return
             }
         }
 
         markPlayerOperation(playerId)
+        const backpackId = entity.getDynamicProperty("backpack_id")
+        const currentSignature = getBackpackSignature(entity)
+        const previousSignature = backpackId != undefined ? backpackInventoryState.get(backpackId) : undefined
+        if (backpackId != undefined && previousSignature == currentSignature) {
+            closeBackpackEntityWithoutSave(entity)
+            return
+        }
+
         saveBackpack(entity)
+        if (backpackId != undefined) backpackInventoryState.set(backpackId, currentSignature)
+        untrackActiveBackpackEntity(playerId, key)
     }, delay)
 
-    pendingBackpackSaves.set(key, runID)
+    pendingBackpackSaves.set(key, { runID, dueTick })
 }
 
 function buildPlayerStateKey(player, item, isPortalNearby) {
@@ -201,13 +240,101 @@ function clearBackpackTick(playerId) {
     }
 }
 
+function getPlayerActiveBackpackIds(playerId) {
+    let activeIds = activeBackpackEntityIdsByPlayer.get(playerId)
+    if (activeIds == undefined) {
+        activeIds = new Set()
+        activeBackpackEntityIdsByPlayer.set(playerId, activeIds)
+    }
+    return activeIds
+}
+
+function trackActiveBackpackEntity(playerId, entityId) {
+    getPlayerActiveBackpackIds(playerId).add(entityId)
+}
+
+function untrackActiveBackpackEntity(playerId, entityId) {
+    const activeIds = activeBackpackEntityIdsByPlayer.get(playerId)
+    if (activeIds == undefined) return
+    activeIds.delete(entityId)
+    if (activeIds.size < 1) activeBackpackEntityIdsByPlayer.delete(playerId)
+}
+
 function flushPlayerBackpacks(playerId, immediate = false) {
+    const activeIds = activeBackpackEntityIdsByPlayer.get(playerId)
+    if (activeIds && activeIds.size > 0) {
+        const staleIds = []
+        for (const entityId of activeIds) {
+            const backpack = world.getEntity(entityId)
+            if (backpack?.isValid()) {
+                queueSaveBackpack(backpack, playerId, immediate)
+            } else {
+                staleIds.push(entityId)
+            }
+        }
+        for (const staleId of staleIds) {
+            activeIds.delete(staleId)
+        }
+        if (activeIds.size < 1) activeBackpackEntityIdsByPlayer.delete(playerId)
+        return
+    }
+
     for (const dim of dims) {
         const backpacks = dim.getEntities({ tags: [playerId, "backpack"] })
         for (const backpack of backpacks) {
+            trackActiveBackpackEntity(playerId, backpack.id)
             queueSaveBackpack(backpack, playerId, immediate)
         }
     }
+}
+
+function getInventorySignature(container, startSlot = 0, maxSlot = container.size) {
+    const signature = []
+    for (let i = startSlot; i < maxSlot; i++) {
+        const item = container.getItem(i)
+        if (!item) {
+            signature.push("_")
+            continue
+        }
+
+        const lore = item.getLore?.() ?? []
+        const durability = item.getComponent?.("minecraft:durability")
+        const enchantable = item.getComponent?.("minecraft:enchantable")
+        const enchantments = enchantable?.getEnchantments?.() ?? []
+        const enchantmentSignature = []
+        for (const enchantment of enchantments) {
+            enchantmentSignature.push(`${enchantment.type.id}:${enchantment.level}`)
+        }
+        enchantmentSignature.sort()
+
+        const dynamicPropertyIDs = item.getDynamicPropertyIds?.() ?? []
+        dynamicPropertyIDs.sort()
+        const dynamicPropertySignature = []
+        for (const dynamicPropertyID of dynamicPropertyIDs) {
+            dynamicPropertySignature.push([dynamicPropertyID, item.getDynamicProperty(dynamicPropertyID)])
+        }
+
+        signature.push([
+            item.typeId,
+            item.amount,
+            item.data ?? 0,
+            item.nameTag ?? "",
+            item.lockMode ?? "",
+            item.keepOnDeath ? 1 : 0,
+            durability?.damage ?? -1,
+            durability?.maxDurability ?? -1,
+            lore.join("\n"),
+            enchantmentSignature.join(","),
+            JSON.stringify(dynamicPropertySignature)
+        ].join(":"))
+    }
+    return signature.join("|")
+}
+
+function getBackpackSignature(entity) {
+    const invComp = entity.getComponent(EntityInventoryComponent.componentId)
+    const container = invComp.container
+    return getInventorySignature(container)
 }
 /** 
 * @param {string} entityTypeID
@@ -255,6 +382,7 @@ function loadBackpack(entityTypeID, player, item) {
         block.setPermutation(lastBlock)
         backPack.setDynamicProperty("backpack_id", id)
         backPack.setDynamicProperty("playerID", player.id)
+        backpackInventoryState.set(id, getBackpackSignature(backPack))
         //console.warn(JSON.stringify(backPack))
         backPack.nameTag = backpackData[backPack.typeId].name
         backPack.setDynamicProperty("playerID", player.id)
@@ -343,7 +471,7 @@ function startBackpackTick(entity, player, backpackTag) {
         const item = equipment.getEquipment(EquipmentSlot.Mainhand)
         const holdingCurrentBackpack = item && backpackIDs.includes(item.typeId) && player.hasTag(backpackTag)
 
-        if (!holdingCurrentBackpack || portalNearby(player)) {
+        if (!holdingCurrentBackpack || portalNearbyMemoized(player)) {
             queueSaveBackpack(entity, player.id, true)
             clearBackpackTick(player.id)
             return
@@ -380,7 +508,7 @@ system.runInterval(() => {
             };*/
     
             const item = slot.getItem()
-            const nearPortal = portalNearby(player)
+            const nearPortal = portalNearbyMemoized(player)
             const stateKey = buildPlayerStateKey(player, item, nearPortal)
             if (cachedPlayerState.get(player.id) == stateKey) continue
             cachedPlayerState.set(player.id, stateKey)
@@ -409,6 +537,7 @@ system.runInterval(() => {
                             const backpack = loadBackpack(item.typeId, player, item)
                             if (!backpack) continue
                             startBackpackTick(backpack, player, tag)
+                            trackActiveBackpackEntity(player.id, backpack.id)
                             backpack.addTag(player.id)
                             backpack.addTag("backpack")
                         }
@@ -444,13 +573,16 @@ world.afterEvents.playerJoin.subscribe((data) => {
     const player = world.getEntity(data.playerId)
     removeAllIDTags(player)
     cachedPlayerState.delete(data.playerId)
+    portalNearbyCache.delete(data.playerId)
     clearBackpackTick(data.playerId)
 })
 
 world.afterEvents.playerLeave.subscribe((data) => {
     clearBackpackTick(data.playerId)
     cachedPlayerState.delete(data.playerId)
+    portalNearbyCache.delete(data.playerId)
     flushPlayerBackpacks(data.playerId, true)
+    activeBackpackEntityIdsByPlayer.delete(data.playerId)
 })
 
 system.runInterval(() => {
@@ -460,8 +592,10 @@ system.runInterval(() => {
             for (const backpack of backpacks) {
                 const itemid = backpack.getDynamicProperty("backpack_id")
                 const id = backpack.getDynamicProperty("playerID")
+                if (id != undefined) trackActiveBackpackEntity(id, backpack.id)
+                const playerEntity = id != undefined ? world.getEntity(id) : undefined
                 if (id != undefined)
-                    if (world.getEntity(id) == undefined || !world.getEntity(id).hasTag("holdingbackpack." + itemid))
+                    if (playerEntity == undefined || !playerEntity.hasTag("holdingbackpack." + itemid))
                         queueSaveBackpack(backpack, id, true)
             }
         }
