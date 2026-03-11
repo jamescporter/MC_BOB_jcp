@@ -418,5 +418,5 @@ export function veinMiner({
     if (itemStack == undefined || !itemStack.getLore().includes("§r§7Vein Miner I") || player.isSneaking)
         return;
 
-    mine(block, permutation.type.id, player, itemStack, blocks);
+    mine(block, permutation.type.id, player, itemStack, blocks, true, "vein_miner");
 };

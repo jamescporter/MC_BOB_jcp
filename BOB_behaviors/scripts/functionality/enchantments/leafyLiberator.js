@@ -81,5 +81,5 @@ export function leafyLiberator({
     if (itemStack == undefined || !itemStack.getLore().includes("§r§7Leafy Liberator I") || player.isSneaking)
         return;
 
-    mine(block, permutation.type.id, player, itemStack, blocks);
+    mine(block, permutation.type.id, player, itemStack, blocks, true, "leafy_liberator");
 };
