@@ -1,5 +1,70 @@
 import { world, system, ItemStack, EquipmentSlot, ItemDurabilityComponent, EntityEquippableComponent } from "@minecraft/server";
 
+const MINE_QUEUE_CHUNK_SIZE = 16;
+const mineQueue = [];
+const reservedDurabilityByPlayer = new Map();
+let isMineQueueScheduled = false;
+
+function scheduleMineQueue() {
+    if (isMineQueueScheduled)
+        return;
+
+    isMineQueueScheduled = true;
+    system.run(processMineQueue);
+};
+
+function processMineQueue() {
+    const current = mineQueue[0];
+    if (current === undefined) {
+        isMineQueueScheduled = false;
+        return;
+    };
+
+    try {
+        const end = Math.min(current.index + MINE_QUEUE_CHUNK_SIZE, current.blocks.length);
+        for (let i = current.index; i < end; i++) {
+            current.blocks[i].setType("minecraft:air");
+        };
+
+        current.index = end;
+        if (current.index >= current.blocks.length) {
+            try {
+                current.onComplete();
+            }
+            catch (error) {
+                console.warn("[enchantments] queued mine completion failed", error);
+            }
+            finally {
+                mineQueue.shift();
+            };
+        };
+    }
+    catch (error) {
+        console.warn("[enchantments] queued mine block set failed", error);
+        try {
+            current.onError?.(error);
+        }
+        catch (callbackError) {
+            console.warn("[enchantments] queued mine error callback failed", callbackError);
+        }
+        finally {
+            mineQueue.shift();
+        };
+    }
+
+    if (mineQueue.length > 0) {
+        system.run(processMineQueue);
+    }
+    else {
+        isMineQueueScheduled = false;
+    };
+};
+
+function queueVeinMine(blocks, onComplete, onError) {
+    mineQueue.push({ blocks, onComplete, onError, index: 0 });
+    scheduleMineQueue();
+};
+
 /**
  * @param { import("@minecraft/server").Block } block 
  * @returns { import("@minecraft/server").Block[] }
@@ -167,7 +232,11 @@ export function applyBlockDrops(
     };
 };
 
-export function mine(block, blockType, player, itemStack, blocksArray, shouldUseSilk = true) {
+function getPlayerDurabilityKey(player) {
+    return player.id ?? player.name;
+};
+
+export function mine(block, blockType, player, itemStack, blocksArray, shouldUseSilk = true, queueLabel = "mine") {
     const drops = blocksArray.find(({ blocks }) =>
         blocks.find(({ name }) => name === blockType)
     );
@@ -179,24 +248,94 @@ export function mine(block, blockType, player, itemStack, blocksArray, shouldUse
     ) return;
 
     const durability = itemStack.getComponent(ItemDurabilityComponent.componentId);
-    const blocks = searchForVein(block, blockType, blockDrops.matches, blockDrops.states, 128, durability?.damage, durability?.maxDurability);
-    const types = blocks.map((b) => b.typeId).filter((id) => id !== "minecraft:air");
-    veinMine(blocks, block.dimension);
+    const playerDurabilityKey = getPlayerDurabilityKey(player);
+    const reservedDurability = reservedDurabilityByPlayer.get(playerDurabilityKey) ?? 0;
+    const effectiveDamage = durability === undefined ? undefined : durability.damage + reservedDurability;
+    const blocks = searchForVein(block, blockType, blockDrops.matches, blockDrops.states, 128, effectiveDamage, durability?.maxDurability);
+    if (blocks.length === 0)
+        return;
 
+    const types = blocks.map((b) => b.typeId).filter((id) => id !== "minecraft:air");
     let brokenBlocks = blocks.length - 1;
-    const equippable = player.getComponent(EntityEquippableComponent.componentId);
-    if (durability !== undefined) {
-        if ((durability.damage + brokenBlocks) < durability.maxDurability) {
-            durability.damage += brokenBlocks;
-            equippable.setEquipment(EquipmentSlot.Mainhand, itemStack);
-        } else {
-            equippable.setEquipment(EquipmentSlot.Mainhand);
-            world.playSound("random.break", player.location);
+    if (durability !== undefined && brokenBlocks > 0)
+        reservedDurabilityByPlayer.set(playerDurabilityKey, reservedDurability + brokenBlocks);
+
+    function releaseReservedDurability() {
+        if (durability !== undefined && brokenBlocks > 0) {
+            const queuedDurability = reservedDurabilityByPlayer.get(playerDurabilityKey) ?? 0;
+            const remainingReserved = Math.max(queuedDurability - brokenBlocks, 0);
+            if (remainingReserved > 0)
+                reservedDurabilityByPlayer.set(playerDurabilityKey, remainingReserved);
+            else
+                reservedDurabilityByPlayer.delete(playerDurabilityKey);
+        };
+    }
+
+    queueVeinMine(blocks, () => {
+        try {
+            const equippable = player.getComponent(EntityEquippableComponent.componentId);
+            if (durability !== undefined) {
+                if ((durability.damage + brokenBlocks) < durability.maxDurability) {
+                    durability.damage += brokenBlocks;
+                    equippable.setEquipment(EquipmentSlot.Mainhand, itemStack);
+                } else {
+                    equippable.setEquipment(EquipmentSlot.Mainhand);
+                    world.playSound("random.break", player.location);
+                };
+            };
+
+            applyBlockDrops(
+                blockDrops, blockType, drops, block,
+                itemStack, types, brokenBlocks, shouldUseSilk
+            );
+        }
+        finally {
+            releaseReservedDurability();
+        }
+    }, () => {
+        releaseReservedDurability();
+    });
+};
+
+/**
+ * Deterministic simulator used by regression tests.
+ * @param {{ id: string, neighbors: string[] }[]} graph
+ * @param {string} startId
+ * @param {number} maxBlocks
+ * @param {number} chunkSize
+ */
+export function simulateQueuedTraversal(graph, startId, maxBlocks, chunkSize = MINE_QUEUE_CHUNK_SIZE) {
+    const nodes = new Map(graph.map((node) => [node.id, node]));
+    const visited = [];
+    const queued = [ startId ];
+    const known = new Set([ startId ]);
+
+    while (queued.length > 0 && visited.length < maxBlocks) {
+        const current = queued.shift();
+        visited.push(current);
+
+        const node = nodes.get(current);
+        if (node === undefined)
+            continue;
+
+        for (const neighbor of node.neighbors) {
+            if (known.has(neighbor))
+                continue;
+
+            known.add(neighbor);
+            queued.push(neighbor);
         };
     };
 
-    applyBlockDrops(
-        blockDrops, blockType, drops, block,
-        itemStack, types, brokenBlocks, shouldUseSilk
-    );
+    const ticks = [];
+    for (let i = 0; i < visited.length; i += chunkSize)
+        ticks.push(visited.slice(i, i + chunkSize));
+
+    return {
+        immediate: visited,
+        ticks,
+        queued: ticks.flat(),
+        durabilityCost: Math.max(visited.length - 1, 0),
+        xpOrbs: Math.floor(visited.length / 2),
+    };
 };

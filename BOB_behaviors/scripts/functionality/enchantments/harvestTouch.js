@@ -76,5 +76,5 @@ export function harvestTouch({
     if (itemStack == undefined || !itemStack.getLore().includes("§r§7Harvest Touch I") || player.isSneaking)
         return;
 
-    mine(block, permutation.type.id, player, itemStack, blocks, false);
+    mine(block, permutation.type.id, player, itemStack, blocks, false, "harvest_touch");
 };

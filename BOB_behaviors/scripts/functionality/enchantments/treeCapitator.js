@@ -101,5 +101,5 @@ export function treeCapitator({
         ]
     }];
 
-    mine(block, blockType, player, itemStack, blocks);
+    mine(block, blockType, player, itemStack, blocks, true, "tree_capitator");
 };
