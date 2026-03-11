@@ -1350,7 +1350,7 @@ export function regularScreen(player) {
         let savedQuests = readJsonProperty(player, tier.property, tier.quests.map((q, index) => ([index, q.default ?? 0]))).value;
         for (let j = 0; j < tier.quests.length; j++) {
             const quest = tier.quests[j];
-            const savedQuest = savedQuests.find((q, index) => index == j);
+            const savedQuest = savedQuests.find((q) => q[0] == j);
             if (savedQuest == undefined)
                 continue;
 
@@ -1384,7 +1384,7 @@ export function regularScreen(player) {
                             let savedQuests = readJsonProperty(player, tier.property, tier.quests.map((q, index) => ([index, q.default ?? 0]))).value;
                             for (let j = 0; j < tier.quests.length; j++) {
                                 const quest = tier.quests[j];
-                                const savedQuest = savedQuests.find((q, index) => index == j);
+                                const savedQuest = savedQuests.find((q) => q[0] == j);
                                 if (savedQuest == undefined)
                                     continue;
 
