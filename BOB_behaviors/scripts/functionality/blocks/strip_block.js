@@ -4,8 +4,8 @@ world.beforeEvents.playerInteractWithBlock.subscribe(ev => {
     const player = ev.player
     const block = ev.block
 
-    const item = player.getComponent(EntityEquippableComponent.componentId).getEquipment(EquipmentSlot.Mainhand);
-    const equipment = player?.getComponent('equippable');
+    const equipment = player?.getComponent(EntityEquippableComponent.componentId);
+    const item = equipment?.getEquipment(EquipmentSlot.Mainhand);
     const durability = item?.getComponent('durability');
     const strippedBlock = block?.typeId + '_stripped';
     const blockFace = block?.permutation.getState('minecraft:block_face');
@@ -22,14 +22,16 @@ world.beforeEvents.playerInteractWithBlock.subscribe(ev => {
             });
             if (durability && durability.damage < durability.maxDurability) {
                 system.run(() => {
+                    if (!equipment) return;
                     durability.damage++;
-                    equipment.setEquipment('Mainhand', item);
+                    equipment.setEquipment(EquipmentSlot.Mainhand, item);
                 });
             }
             if (durability && durability.damage >= durability.maxDurability) {
                 system.run(() => {
+                    if (!equipment) return;
                     player.playSound('random.break');
-                    equipment.setEquipment('Mainhand', new ItemStack('minecraft:air', 1));
+                    equipment.setEquipment(EquipmentSlot.Mainhand, new ItemStack('minecraft:air', 1));
                 });
             }
         }
