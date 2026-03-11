@@ -438,11 +438,17 @@ const functions = {
                             return;
                         };
 
+                        const savedBounty = savedBounties.find((b) => b[0] == bounty.id);
+                        if (!savedBounty) {
+                            player.sendMessage("§c[!] §rBounty data is unavailable. Please reopen the menu.");
+                            return;
+                        };
+
                         player.sendMessage([
                             { text: "§a[!] §r" },
                             { translate: "bob.message.bounty.accepted" },
                         ]);
-                        savedBounties.find((b) => b[0] == bounty.id)[2] = 1;
+                        savedBounty[2] = 1;
                         player.setDynamicProperty(
                             "bounties",
                             JSON.stringify(savedBounties),
@@ -471,6 +477,12 @@ const functions = {
                     case 0: {
                         const savedBounty = savedBounties.find((b) => b[0] == bounty.id);
                         const b = bounties.find((b) => b.id == bounty.id);
+                        if (!savedBounty || !b) {
+                            player.sendMessage("§c[!] §rBounty data is unavailable. Please reopen the menu.");
+                            bountyPage(player);
+                            return;
+                        };
+
                         if (savedBounty[2] != 3) {
                             giveRewards(player, b.rewards);
 
@@ -493,11 +505,42 @@ const functions = {
 
 const bountyPage = (player) => {
     let savedBounties = readJsonProperty(player, "bounties", defaultBounties).value;
+
     for (const savedBounty of savedBounties) {
         if (!bounties.find((q) => q.id == savedBounty[0])) {
             savedBounties = savedBounties.filter((q) => q[0] != savedBounty[0]);
         };
     };
+
+    for (const bounty of bounties) {
+        if (savedBounties.find((q) => q[0] == bounty.id))
+            continue;
+
+        const defaultBounty = defaultBounties.find((q) => q[0] == bounty.id) ?? [ bounty.id, 0, 4 ];
+        savedBounties.push([ ...defaultBounty ]);
+    };
+
+    const normalisedBounties = new Map();
+    for (const savedBounty of savedBounties) {
+        if (!Array.isArray(savedBounty) || typeof savedBounty[0] !== "number")
+            continue;
+
+        const current = normalisedBounties.get(savedBounty[0]);
+        if (!current) {
+            normalisedBounties.set(savedBounty[0], savedBounty);
+            continue;
+        };
+
+        const currentStatus = current[2] ?? 0;
+        const savedStatus = savedBounty[2] ?? 0;
+        if (
+            savedStatus > currentStatus
+            || (savedStatus == currentStatus && (savedBounty[1] ?? 0) > (current[1] ?? 0))
+        ) {
+            normalisedBounties.set(savedBounty[0], savedBounty);
+        };
+    };
+    savedBounties = [ ...normalisedBounties.values() ];
 
     player.setDynamicProperty(
         "bounties",
@@ -511,6 +554,9 @@ const bountyPage = (player) => {
     const buttons = [];
     for (const questO of bounties) {
         const quest = savedBounties.find((b) => b[0] == questO.id);
+        if (!quest)
+            continue;
+
         if (quest[2] === 3)
             continue;
 
@@ -521,6 +567,9 @@ const bountyPage = (player) => {
 
     for (const questO of bounties) {
         const quest = savedBounties.find((b) => b[0] == questO.id);
+        if (!quest)
+            continue;
+
         if (quest[2] !== 3)
             continue;
 
@@ -534,12 +583,18 @@ const bountyPage = (player) => {
         (response) => {
             if (response.canceled) return;
 
-            if (response.selection === bounties.length) {
+            if (response.selection === buttons.length) {
                 bountiesScreen(player);
                 return;
             };
 
             const bounty = buttons[response.selection];
+            if (!bounty) {
+                player.sendMessage("§c[!] §rBounty data is unavailable. Please reopen the menu.");
+                bountyPage(player);
+                return;
+            };
+
             const b = bounties.find((b) => b.id == bounty[0]);
 
             if (bounty[2] == 0)
