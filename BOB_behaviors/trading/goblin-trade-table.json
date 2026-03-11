@@ -9,7 +9,7 @@
                      "wants": [
                         {
                            "item": "minecraft:emerald",
-                           "quantity": 4,
+                           "quantity": 10,
                            "price_multiplier": 0.05
                         }
                      ],
@@ -50,7 +50,7 @@
                               },
                               {
                                  "function": "set_name",
-                                 "name": "§r§fJungle Village Explorer Map"
+                                 "name": "\u00a7r\u00a7fJungle Village Explorer Map"
                               }
                            ]
                         }
@@ -82,7 +82,7 @@
                               {
                                  "function": "set_lore",
                                  "lore": [
-                                    "§r§fWell Dungeon Explorer Map"
+                                    "\u00a7r\u00a7fWell Dungeon Explorer Map"
                                  ]
                               }
                            ]
@@ -115,7 +115,7 @@
                               {
                                  "function": "set_lore",
                                  "lore": [
-                                    "§r§fPale Dungeon Explorer Map"
+                                    "\u00a7r\u00a7fPale Dungeon Explorer Map"
                                  ]
                               }
                            ]
@@ -129,7 +129,7 @@
                      "wants": [
                         {
                            "item": "minecraft:gold_ingot",
-                           "quantity": 6
+                           "quantity": 25
                         }
                      ],
                      "gives": [
@@ -145,7 +145,7 @@
                      "wants": [
                         {
                            "item": "minecraft:gold_ingot",
-                           "quantity": 6
+                           "quantity": 25
                         }
                      ],
                      "gives": [
@@ -161,6 +161,10 @@
                      "wants": [
                         {
                            "item": "minecraft:ancient_debris",
+                           "quantity": 1
+                        },
+                        {
+                           "item": "minecraft:gold_block",
                            "quantity": 1
                         }
                      ],
@@ -178,11 +182,11 @@
                      "wants": [
                         {
                            "item": "minecraft:diamond",
-                           "quantity": 9
+                           "quantity": 15
                         },
                         {
                            "item": "minecraft:gold_block",
-                           "quantity": 2
+                           "quantity": 6
                         }
                      ],
                      "gives": [
@@ -199,11 +203,11 @@
                      "wants": [
                         {
                            "item": "minecraft:copper_ingot",
-                           "quantity": 4
+                           "quantity": 8
                         },
                         {
                            "item": "minecraft:gold_nugget",
-                           "quantity": 4
+                           "quantity": 20
                         }
                      ],
                      "gives": [
@@ -219,7 +223,7 @@
                      "wants": [
                         {
                            "item": "minecraft:iron_ingot",
-                           "quantity": 4
+                           "quantity": 15
                         }
                      ],
                      "gives": [
@@ -254,7 +258,7 @@
                      "wants": [
                         {
                            "item": "minecraft:diamond",
-                           "quantity": 12
+                           "quantity": 20
                         }
                      ],
                      "gives": [
@@ -270,7 +274,7 @@
                      "wants": [
                         {
                            "item": "minecraft:carrot",
-                           "quantity": 12
+                           "quantity": 24
                         }
                      ],
                      "gives": [
@@ -318,11 +322,15 @@
                      "wants": [
                         {
                            "item": "minecraft:coal",
-                           "quantity": 32
+                           "quantity": 64
                         },
                         {
                            "item": "minecraft:charcoal",
-                           "quantity": 32
+                           "quantity": 64
+                        },
+                        {
+                           "item": "minecraft:emerald",
+                           "quantity": 1
                         }
                      ],
                      "gives": [
@@ -338,7 +346,7 @@
                      "wants": [
                         {
                            "item": "minecraft:bread",
-                           "quantity": 4
+                           "quantity": 16
                         }
                      ],
                      "gives": [
@@ -360,7 +368,7 @@
                      "gives": [
                         {
                            "item": "minecraft:lapis_lazuli",
-                           "quantity": 32
+                           "quantity": 64
                         }
                      ],
                      "max_uses": 5,
@@ -371,7 +379,7 @@
                      "wants": [
                         {
                            "item": "minecraft:copper_ingot",
-                           "quantity": 12
+                           "quantity": 36
                         }
                      ],
                      "gives": [
