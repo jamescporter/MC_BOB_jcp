@@ -1,4 +1,4 @@
-import { BlockPermutation, BlockStates, ItemStack, EntityEquippableComponent, EquipmentSlot, system, world } from "@minecraft/server";
+import { BlockPermutation, ItemStack, EntityEquippableComponent, EquipmentSlot, system, world } from "@minecraft/server";
 
 const STRIPPED_BLOCK_MAP = {
     "minecraft:acacia_log": "minecraft:stripped_acacia_log",
