@@ -62,12 +62,12 @@ world.beforeEvents.playerInteractWithBlock.subscribe(ev => {
 
                 if (durability && currentDamage < durability.maxDurability) {
                     durability.damage++;
-                    equipment.setEquipment("Mainhand", item);
+                    equipment.setEquipment(EquipmentSlot.Mainhand, item);
                 }
 
                 if (durability && currentDamage >= durability.maxDurability) {
                     player.playSound("random.break");
-                    equipment.setEquipment("Mainhand", new ItemStack("minecraft:air", 1));
+                    equipment.setEquipment(EquipmentSlot.Mainhand, new ItemStack("minecraft:air", 1));
                 }
             });
         }
