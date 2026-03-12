@@ -46,8 +46,7 @@ This fork mainly focuses on reliability and performance.
 - **Item/combat system stability:** backpacks, staffs, spear/trident logic, strip-block interactions, and related item systems were made more robust while preserving existing functionality.
 - **Quest flow:** regular, bounty, and bought-quest paths were tightened with safer parsing/selection logic, better reconciliation, and duplicate-state normalisation.
 - **Entity and ambience updates:** Seeker/Inferior and supporting end-mob logic were adjusted, alongside ambient and fog behaviour refinements for more consistent world state transitions.
-- **Gameplay balancing and maintenance:** trader values received light balance tuning so he's not as OP.
-- **Nether combat feel update:** Fire Wisps now have a ~33% larger custom hitbox and a slight scale increase, making them less frustrating to hit without changing their core behaviour.
-- **Nether mob AI priority fix:** Bassalt Crobbers now prioritise targeting and attack goals above idle wandering to improve combat responsiveness.
-- **Bassalt Crobber pathing reliability tweak:** Updated delayed attack path requirements (`require_complete_path: false`) and added conservative Nether navigation flags (`can_path_over_water: false`, `avoid_damage_blocks: true`) while keeping existing water avoidance and attack timing/damage unchanged.
+- **Goblin Trader balance:** trader values received light balance tuning so he's not as OP.
+- **Fire Wisps size:** Fire Wisps now have a ~33% larger custom hitbox and a slight scale increase, making them less frustrating to hit without changing their core behaviour.
+- **Bassalt Crobbers:** Bassalt Crobbers now prioritise targeting and attack goals above idle wandering to improve combat responsiveness. Updated delayed attack path requirements (`require_complete_path: false`) and added conservative Nether navigation flags (`can_path_over_water: false`, `avoid_damage_blocks: true`) while keeping existing water avoidance and attack timing/damage unchanged.
 - **JSON validity hotfix (Piglin behaviour):** Fixed an invalid inline comment in `BOB_behaviors/entities/nether_mobs/piglin.json` that broke JSON parsing, and completed `broadcast_targets` with both `"piglin"` and `"piglin_brute"` as originally intended.
