@@ -1,4 +1,4 @@
-import { world, system, BlockTypes, EntityEquippableComponent, EntityInventoryComponent, EquipmentSlot, ItemStack } from "@minecraft/server";
+import { world, system, BlockTypes, BlockPermutation, BlockVolume, EntityEquippableComponent, EntityInventoryComponent, EquipmentSlot, ItemStack } from "@minecraft/server";
 export const blocks = BlockTypes.getAll().map((block) => block.id);
 
 import { wawla } from "./functionality/wawla.js";
@@ -292,3 +292,139 @@ world.beforeEvents.worldInitialize.subscribe(
         registerItemComponents(itemComponentRegistry);
     },
 );
+
+
+// -----------------------------------------------------------------------------
+// Expiring torch system (Bedrock Script API 1.21+)
+// -----------------------------------------------------------------------------
+
+const EXPIRING_TORCH_BLOCK_ID = "better_on_bedrock:expiring_torch";
+const TORCH_LIFESPAN_PROPERTY = "better_on_bedrock:torch_lifespan";
+const TORCH_SCAN_RADIUS_PROPERTY = "better_on_bedrock:scan_radius";
+const DEFAULT_TORCH_LIFESPAN = 12000;
+const DEFAULT_SCAN_RADIUS = 24;
+
+/**
+ * Ensures our configurable world properties exist.
+ * Values can then be changed later via scripts/commands as needed.
+ */
+function initialiseExpiringTorchProperties() {
+    if (world.getDynamicProperty(TORCH_LIFESPAN_PROPERTY) === undefined)
+        world.setDynamicProperty(TORCH_LIFESPAN_PROPERTY, DEFAULT_TORCH_LIFESPAN);
+
+    if (world.getDynamicProperty(TORCH_SCAN_RADIUS_PROPERTY) === undefined)
+        world.setDynamicProperty(TORCH_SCAN_RADIUS_PROPERTY, DEFAULT_SCAN_RADIUS);
+}
+
+/**
+ * Converts a vanilla torch-facing value into a minecraft:block_face value.
+ * Supports both likely state key variants used by torches.
+ * @param {import("@minecraft/server").BlockPermutation} permutation
+ */
+function getPlacementFaceFromPermutation(permutation) {
+    const states = permutation.getAllStates();
+
+    const blockFace = states["minecraft:block_face"];
+    if (typeof blockFace === "string")
+        return blockFace;
+
+    const torchFacing = states["minecraft:torch_facing_direction"];
+    if (typeof torchFacing === "string")
+        return torchFacing;
+
+    const cardinal = states["minecraft:cardinal_direction"];
+    if (typeof cardinal === "string")
+        return cardinal;
+
+    return "up";
+}
+
+/**
+ * Replaces a block with our expiring torch proxy while preserving face when possible.
+ * @param {import("@minecraft/server").Block} block
+ */
+function replaceWithExpiringTorch(block) {
+    const face = getPlacementFaceFromPermutation(block.permutation);
+    block.setPermutation(BlockPermutation.resolve(EXPIRING_TORCH_BLOCK_ID, {
+        "minecraft:block_face": face,
+    }));
+}
+
+// Register the block custom component during startup.
+world.beforeEvents.startup.subscribe(({ blockComponentRegistry }) => {
+    initialiseExpiringTorchProperties();
+
+    blockComponentRegistry.registerCustomComponent("better_on_bedrock:expire_torch", {
+        /**
+         * Called by the block's minecraft:tick component.
+         * We simply turn the torch into air when it expires.
+         */
+        onTick({ block }) {
+            block.setPermutation(BlockPermutation.resolve("minecraft:air"));
+        },
+    });
+});
+
+// Intercept direct placement and immediately proxy vanilla torches to expiring torches.
+world.afterEvents.playerPlaceBlock.subscribe(({ block }) => {
+    if (!block?.isValid())
+        return;
+
+    if (block.typeId !== "minecraft:torch" && block.typeId !== "minecraft:wall_torch")
+        return;
+
+    replaceWithExpiringTorch(block);
+});
+
+// Background scanner: continuously converts nearby vanilla torches to expiring torches.
+system.runInterval(() => {
+    const players = world.getAllPlayers();
+    if (players.length <= 0)
+        return;
+
+    const configuredRadius = Number(world.getDynamicProperty(TORCH_SCAN_RADIUS_PROPERTY));
+    const radius = Number.isFinite(configuredRadius) ? Math.max(1, Math.floor(configuredRadius)) : DEFAULT_SCAN_RADIUS;
+
+    for (const player of players) {
+        if (!player?.isValid())
+            continue;
+
+        const { x, y, z } = player.location;
+        const min = {
+            x: Math.floor(x - radius),
+            y: Math.max(-64, Math.floor(y - radius)),
+            z: Math.floor(z - radius),
+        };
+        const max = {
+            x: Math.floor(x + radius),
+            y: Math.min(320, Math.floor(y + radius)),
+            z: Math.floor(z + radius),
+        };
+
+        const scanVolume = new BlockVolume(min, max);
+
+        // Floor torches become expiring torches facing up.
+        player.dimension.fillBlocks(
+            scanVolume,
+            BlockPermutation.resolve(EXPIRING_TORCH_BLOCK_ID, { "minecraft:block_face": "up" }),
+            {
+                blockFilter: {
+                    includeTypes: ["minecraft:torch"],
+                },
+                ignoreChunkBoundErrors: true,
+            }
+        );
+
+        // Wall torches become expiring wall-style torches.
+        player.dimension.fillBlocks(
+            scanVolume,
+            BlockPermutation.resolve(EXPIRING_TORCH_BLOCK_ID, { "minecraft:block_face": "north" }),
+            {
+                blockFilter: {
+                    includeTypes: ["minecraft:wall_torch"],
+                },
+                ignoreChunkBoundErrors: true,
+            }
+        );
+    }
+}, 100);
